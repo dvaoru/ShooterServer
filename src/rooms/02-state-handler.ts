@@ -2,8 +2,17 @@ import { Room, Client } from "colyseus";
 import { Schema, type, MapSchema } from "@colyseus/schema";
 
 export class Player extends Schema {
+    @type("int8")
+    loss = 0;
+
     @type("number")
     speed = 0;
+
+    @type("int8")
+    maxHP = 0;
+
+    @type("int8")
+    currentHP = 0;
 
     @type("number")
     pX = Math.floor(Math.random() * 50) - 25;
@@ -27,7 +36,7 @@ export class Player extends Schema {
     rX = 0;
 
     @type("number")
-    rY = 0; 
+    rY = 0;
 }
 
 export class State extends Schema {
@@ -36,10 +45,14 @@ export class State extends Schema {
 
     something = "This attribute won't be sent to the client-side";
 
-    createPlayer(sessionId: string, data: any) {
+    createPlayer(sessionId: string, data: any, position: Point) {
         const player = new Player();
+        player.pX = position.x;
+        player.pY = position.y;
+        player.pZ = position.z;
         player.speed = data.speed;
-
+        player.maxHP = data.hp;
+        player.currentHP = data.hp;
         this.players.set(sessionId, player);
     }
 
@@ -63,7 +76,8 @@ export class State extends Schema {
 }
 
 export class StateHandlerRoom extends Room<State> {
-    maxClients = 4;
+    maxClients = 2;
+    private spawnPoints = new SpawnPoints();
 
     onCreate(options) {
         console.log("StateHandlerRoom created!", options);
@@ -76,8 +90,33 @@ export class StateHandlerRoom extends Room<State> {
         });
 
         this.onMessage("shoot", (client, data) => {
-            this.broadcast("Shoot", data, {except: client});
-        })
+            this.broadcast("Shoot", data, { except: client });
+        });
+
+        this.onMessage("damage", (client, data) => {
+            const clientID = data.id;
+            const player = this.state.players.get(clientID);
+            let hp = player.currentHP - data.value;
+            if (hp > 0) {
+                player.currentHP = hp;
+                return;
+            }
+            player.loss++;
+            player.currentHP = player.maxHP;
+
+            client.send("", "");
+            for (var i = 0; i < this.clients.length; i++) {
+                if (this.clients[i].id != clientID) continue;
+                // const x = Math.floor(Math.random() * 50) - 25;
+                // const z = Math.floor(Math.random() * 50) - 25;
+                const respawnPoint = this.spawnPoints.getSpawnPoint();
+                const x = respawnPoint.x;
+                const z = respawnPoint.y;
+                //TODO: Сделать передачу координаты y
+                const message = JSON.stringify({ x, z });
+                this.clients[i].send("Restart", message);
+            }
+        });
     }
 
     onAuth(client, options, req) {
@@ -85,8 +124,8 @@ export class StateHandlerRoom extends Room<State> {
     }
 
     onJoin(client: Client, data: any) {
-        client.send("hello", "world");
-        this.state.createPlayer(client.sessionId, data);
+        if (this.clients.length > 1) this.lock();
+        this.state.createPlayer(client.sessionId, data, this.spawnPoints.getSpawnPoint());
     }
 
     onLeave(client) {
@@ -95,5 +134,28 @@ export class StateHandlerRoom extends Room<State> {
 
     onDispose() {
         console.log("Dispose StateHandlerRoom");
+    }
+}
+type Point = { x: number; y: number; z: number };
+
+class SpawnPoints {
+    private prevSpawnPointIndex = -1;
+    //Список точек спавна
+    private points: Point[] = [
+        { x: 10, y: 0, z: 10 },
+        { x: 15, y: 0, z: 15 },
+        { x: -10, y: 0, z: -10 },
+        { x: -15, y: 0, z: -15 },
+    ];
+
+    getSpawnPoint(): Point {
+        let randomIndex: number;
+        //Выберем случайную точку, но не предыдущую
+        do {
+            randomIndex = Math.floor(Math.random() * this.points.length);
+        } while (randomIndex == this.prevSpawnPointIndex);
+
+        this.prevSpawnPointIndex = randomIndex;
+        return this.points[randomIndex];
     }
 }
