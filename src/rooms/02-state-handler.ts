@@ -117,10 +117,6 @@ export class StateHandlerRoom extends Room<State> {
                 this.clients[i].send("Restart", message);
             }
         });
-
-        this.onMessage("change", (client, data) => {
-            this.broadcast("Change", data, { except: client });
-        });
     }
 
     onAuth(client, options, req) {
@@ -129,11 +125,7 @@ export class StateHandlerRoom extends Room<State> {
 
     onJoin(client: Client, data: any) {
         if (this.clients.length > 1) this.lock();
-        this.state.createPlayer(
-            client.sessionId,
-            data,
-            this.spawnPoints.getSpawnPoint()
-        );
+        this.state.createPlayer(client.sessionId, data, this.spawnPoints.getSpawnPoint());
     }
 
     onLeave(client) {
